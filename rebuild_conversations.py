@@ -1,5 +1,5 @@
 """
-Antigravity Conversation Fix  (v1.04)
+Antigravity Conversation Fix  (v1.05)
 =============================
 Rebuilds the Antigravity conversation index so all your chat history
 appears correctly — sorted by date (newest first) with proper titles.
@@ -32,54 +32,75 @@ import subprocess
 import platform
 from urllib.parse import quote, unquote
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
+# ─── Path Detection ──────────────────────────────────────────────────────────
+# Antigravity was renamed to "Antigravity IDE" in a recent update.
+# We check the new name first, then fall back to the old name so the tool
+# works on both old and new installations.
 
 _SYSTEM = platform.system()
 
+
+def _first_existing(*candidates):
+    """Return the first path that exists on disk, or the first candidate if none exist."""
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return candidates[0]
+
+
 if _SYSTEM == "Windows":
-    DB_PATH = os.path.expandvars(
-        r"%APPDATA%\antigravity\User\globalStorage\state.vscdb"
+    _appdata = os.path.expandvars(r"%APPDATA%")
+    _profile = os.path.expandvars(r"%USERPROFILE%")
+
+    DB_PATH = _first_existing(
+        os.path.join(_appdata, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+        os.path.join(_appdata, "antigravity", "User", "globalStorage", "state.vscdb"),
     )
-    CONVERSATIONS_DIR = os.path.expandvars(
-        r"%USERPROFILE%\.gemini\antigravity\conversations"
+    CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_profile, ".gemini", "antigravity", "conversations"),
     )
-    BRAIN_DIR = os.path.expandvars(
-        r"%USERPROFILE%\.gemini\antigravity\brain"
+    BRAIN_DIR = _first_existing(
+        os.path.join(_profile, ".gemini", "antigravity", "brain"),
     )
-    WORKSPACE_STORAGE_DIR = os.path.expandvars(
-        r"%APPDATA%\antigravity\User\workspaceStorage"
+    WORKSPACE_STORAGE_DIR = _first_existing(
+        os.path.join(_appdata, "Antigravity IDE", "User", "workspaceStorage"),
+        os.path.join(_appdata, "antigravity", "User", "workspaceStorage"),
     )
 elif _SYSTEM == "Darwin":  # macOS
     _home = os.path.expanduser("~")
-    DB_PATH = os.path.join(
-        _home, "Library", "Application Support",
-        "antigravity", "User", "globalStorage", "state.vscdb"
+    _support = os.path.join(_home, "Library", "Application Support")
+
+    DB_PATH = _first_existing(
+        os.path.join(_support, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+        os.path.join(_support, "antigravity", "User", "globalStorage", "state.vscdb"),
     )
-    CONVERSATIONS_DIR = os.path.join(
-        _home, ".gemini", "antigravity", "conversations"
+    CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity", "conversations"),
     )
-    BRAIN_DIR = os.path.join(
-        _home, ".gemini", "antigravity", "brain"
+    BRAIN_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity", "brain"),
     )
-    WORKSPACE_STORAGE_DIR = os.path.join(
-        _home, "Library", "Application Support",
-        "antigravity", "User", "workspaceStorage"
+    WORKSPACE_STORAGE_DIR = _first_existing(
+        os.path.join(_support, "Antigravity IDE", "User", "workspaceStorage"),
+        os.path.join(_support, "antigravity", "User", "workspaceStorage"),
     )
 else:  # Linux and other POSIX systems
     _home = os.path.expanduser("~")
-    DB_PATH = os.path.join(
-        _home, ".config", "Antigravity",
-        "User", "globalStorage", "state.vscdb"
+    _config = os.path.join(_home, ".config")
+
+    DB_PATH = _first_existing(
+        os.path.join(_config, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+        os.path.join(_config, "Antigravity", "User", "globalStorage", "state.vscdb"),
     )
-    CONVERSATIONS_DIR = os.path.join(
-        _home, ".gemini", "antigravity", "conversations"
+    CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity", "conversations"),
     )
-    BRAIN_DIR = os.path.join(
-        _home, ".gemini", "antigravity", "brain"
+    BRAIN_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity", "brain"),
     )
-    WORKSPACE_STORAGE_DIR = os.path.join(
-        _home, ".config", "Antigravity",
-        "User", "workspaceStorage"
+    WORKSPACE_STORAGE_DIR = _first_existing(
+        os.path.join(_config, "Antigravity IDE", "User", "workspaceStorage"),
+        os.path.join(_config, "Antigravity", "User", "workspaceStorage"),
     )
 
 BACKUP_FILENAME = "trajectorySummaries_backup.txt"
@@ -175,15 +196,14 @@ def path_to_workspace_uri(folder_path):
     """
     Convert a local folder path to a file:/// URI matching Antigravity's format.
     Passes through remote URIs (vscode-remote://, file:///) unchanged.
-    Handles spaces and special characters via URL-encoding.
-    Example: D:\\Repos\\My Project  →  file:///d%3A/Repos/My%20Project
+    Uses raw paths (no URL-encoding) for clean display in Antigravity's sidebar.
+    Example: D:\\Repos\\My Project  →  file:///d:/Repos/My Project
     """
     # Pass through URIs that are already in the correct format
     if _is_remote_uri(folder_path):
         return folder_path
 
     p = folder_path.replace("\\", "/")
-    # Lowercase drive letter + URL-encode the colon
     if len(p) >= 2 and p[1] == ":":
         drive = p[0].lower()
         rest = p[2:]
@@ -191,15 +211,10 @@ def path_to_workspace_uri(folder_path):
         drive = None
         rest = p
 
-    # URL-encode each path segment (preserving slashes)
-    segments = rest.split("/")
-    encoded_segments = [quote(seg, safe="") for seg in segments]
-    encoded_path = "/".join(encoded_segments)
-
     if drive:
-        return f"file:///{drive}%3A{encoded_path}"
+        return f"file:///{drive}:{rest}"
     else:
-        return f"file:///{encoded_path.lstrip('/')}"
+        return f"file:///{rest.lstrip('/')}"
 
 
 def build_workspace_field(folder_path):
@@ -669,6 +684,17 @@ def build_trajectory_entry(conversation_id, title, existing_inner_data=None,
     if existing_inner_data:
         preserved_fields = strip_field_from_protobuf(existing_inner_data, 1)
         inner_info = encode_string_field(1, title) + preserved_fields
+
+        # Decode %20/%3A in existing workspace URIs so folder names display
+        # correctly in Antigravity's sidebar (e.g. "Pine Script Project" not
+        # "Pine%20Script%20Project")
+        if not workspace_path:
+            existing_ws = extract_workspace_hint(inner_info)
+            if existing_ws and ("%20" in existing_ws or "%3A" in existing_ws or "%3a" in existing_ws):
+                decoded_ws = unquote(existing_ws)
+                inner_info = strip_field_from_protobuf(inner_info, 9)
+                inner_info += build_workspace_field(decoded_ws)
+
         # Override workspace if user assigned a new one
         if workspace_path:
             # Strip old workspace (field 9) and inject the new one
@@ -697,7 +723,7 @@ def build_trajectory_entry(conversation_id, title, existing_inner_data=None,
 def main():
     print()
     print("=" * 62)
-    print("   Antigravity Conversation Fix  v1.04")
+    print("   Antigravity Conversation Fix  v1.05")
     print("   Rebuilds your conversation index — sorted by date")
     print("=" * 62)
     print()

@@ -27,6 +27,7 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 | Lost workspace assignments (v1.0 damage) | ✅ Auto-recovers from brain artifacts *(v1.03+)* |
 | Missing timestamps causing wrong sort | ✅ Injects timestamps from file dates *(v1.03+)* |
 | Remote workspaces (WSL/SSH/Docker) not recognized | ✅ Full `vscode-remote://` support *(v1.04+)* |
+| "Antigravity IDE" renamed folder not detected | ✅ Auto-detects both old and new paths *(v1.05+)* |
 
 ## How It Works
 
@@ -37,15 +38,17 @@ Antigravity stores conversation data in two places:
 
 | OS | Conversations | Database |
 |---|---|---|
-| Windows | `%USERPROFILE%\.gemini\antigravity\conversations\` | `%APPDATA%\antigravity\...\state.vscdb` |
-| macOS | `~/.gemini/antigravity/conversations/` | `~/Library/Application Support/antigravity/.../state.vscdb` |
-| Linux | `~/.gemini/antigravity/conversations/` | `~/.config/Antigravity/.../state.vscdb` |
+| Windows | `%USERPROFILE%\.gemini\antigravity\conversations\` | `%APPDATA%\Antigravity IDE\...\state.vscdb` |
+| macOS | `~/.gemini/antigravity/conversations/` | `~/Library/Application Support/Antigravity IDE/.../state.vscdb` |
+| Linux | `~/.gemini/antigravity/conversations/` | `~/.config/Antigravity IDE/.../state.vscdb` |
+
+> **Note:** The tool automatically detects both the old folder name (`Antigravity` / `antigravity`) and the new name (`Antigravity IDE`). No manual path changes needed.
 
 When the index gets corrupted, conversations still exist on disk but don't show up in the sidebar. This tool scans your conversation files, sorts them by date, pulls titles from brain artifacts, and writes a clean index back to the database.
 
 **Title resolution priority:**
-1. Brain artifact `.md` headings (best source)
-2. Titles already in the database (preserved across re-runs)
+1. Titles already in the database (canonical Antigravity titles — preserved across re-runs)
+2. Brain artifact `.md` headings (for conversations not yet indexed)
 3. Fallback: `Conversation (date) short-id`
 
 ## Output Legend
@@ -58,6 +61,11 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 | `[WS]` | Workspace metadata preserved or recovered |
 
 ## Changelog
+
+### v1.05
+- **New:** **Antigravity IDE path support** — automatically detects both the old (`Antigravity`) and new (`Antigravity IDE`) folder names across Windows, macOS, and Linux. No manual configuration needed — the tool finds whichever version you have installed.
+- **New:** **Smarter workspace matching** — uses Antigravity's own `workspaceStorage` data to accurately match conversations to workspaces, instead of relying solely on path-depth heuristics. Falls back to the old method if no workspace storage data is found.
+- **Fix:** Title resolution now correctly preserves canonical Antigravity titles from the database, only using brain artifact headings for conversations that have no existing title.
 
 ### v1.04
 - **New:** **Remote workspace support** — now correctly handles `vscode-remote://` URIs for WSL, SSH, and Docker workspaces. Remote paths are detected during auto-assignment and accepted during manual assignment without local filesystem validation.
@@ -87,7 +95,17 @@ If you prefer running the Python script directly, or if you are on **Mac** or **
 python rebuild_conversations.py
 ```
 
-Requires Python 3.7+ with no external packages. The script automatically detects your operating system and finds the correct `antigravity` folders.
+Requires Python 3.7+ with no external packages. The script automatically detects your operating system and finds the correct folders (both old and new naming conventions).
+
+### WSL Users
+
+If your conversations are stored inside WSL but Antigravity runs on Windows, copy your files to the Windows profile first:
+
+1. Copy `\\wsl.localhost\<distro>\home\<user>\.gemini\antigravity\conversations\*.pb` → `%USERPROFILE%\.gemini\antigravity\conversations\`
+2. Copy `\\wsl.localhost\<distro>\home\<user>\.gemini\antigravity\brain\` → `%USERPROFILE%\.gemini\antigravity\brain\`
+3. Run the fix tool as normal on Windows
+
+The `vscode-remote://` workspace detection will still work correctly for your WSL workspaces.
 
 ## Safety
 
@@ -114,6 +132,9 @@ A: Yes! v1.03+ can auto-recover most workspace assignments by scanning your brai
 
 **Q: I use WSL / SSH / Docker remote workspaces. Will this work?**
 A: Yes! v1.04+ fully supports `vscode-remote://` URIs. The tool auto-detects remote workspace paths from your brain artifacts and accepts them during manual assignment.
+
+**Q: I updated Antigravity and the folder changed from "Antigravity" to "Antigravity IDE". Will the tool still work?**
+A: Yes! v1.05+ automatically detects both folder names and uses whichever one exists on your system.
 
 ## License
 

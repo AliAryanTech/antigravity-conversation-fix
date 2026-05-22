@@ -28,6 +28,7 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 | Missing timestamps causing wrong sort | ✅ Injects timestamps from file dates *(v1.03+)* |
 | Remote workspaces (WSL/SSH/Docker) not recognized | ✅ Full `vscode-remote://` support *(v1.04+)* |
 | "Antigravity IDE" renamed folder not detected | ✅ Auto-detects both old and new paths *(v1.05+)* |
+| Antigravity IDE 2.x `antigravity-ide` data folder | ✅ Auto-detects all naming variants *(v1.05+)* |
 | Running from WSL requires manual file copying | ✅ Native WSL path detection *(v1.05+)* |
 | `python` command fails on macOS/Linux | ✅ Auto-detects Python 3, with built-in fallback *(v1.05+)* |
 
@@ -40,12 +41,12 @@ Antigravity stores conversation data in two places:
 
 | OS | Conversations | Database |
 |---|---|---|
-| Windows | `%USERPROFILE%\.gemini\antigravity\conversations\` | `%APPDATA%\Antigravity IDE\...\state.vscdb` |
-| macOS | `~/.gemini/antigravity/conversations/` | `~/Library/Application Support/Antigravity IDE/.../state.vscdb` |
-| Linux | `~/.gemini/antigravity/conversations/` | `~/.config/Antigravity IDE/.../state.vscdb` |
-| WSL | `~/.gemini/antigravity/conversations/` | Auto-resolved from Windows `%APPDATA%` via `/mnt/c/` |
+| Windows | `%USERPROFILE%\.gemini\antigravity\` or `antigravity-ide\` | `%APPDATA%\Antigravity IDE\...\state.vscdb` |
+| macOS | `~/.gemini/antigravity/` or `antigravity-ide/` | `~/Library/Application Support/Antigravity IDE/.../state.vscdb` |
+| Linux | `~/.gemini/antigravity/` or `antigravity-ide/` | `~/.config/Antigravity IDE/.../state.vscdb` |
+| WSL | `~/.gemini/antigravity/` or `antigravity-ide/` | Auto-resolved from Windows `%APPDATA%` via `/mnt/c/` |
 
-> **Note:** The tool automatically detects both the old folder name (`Antigravity` / `antigravity`) and the new name (`Antigravity IDE`). No manual path changes needed.
+> **Note:** The tool automatically detects all folder name variants — `antigravity`, `antigravity-ide`, `Antigravity`, and `Antigravity IDE` — across both the user profile and app data directories. No manual path changes needed.
 
 When the index gets corrupted, conversations still exist on disk but don't show up in the sidebar. This tool scans your conversation files, sorts them by date, pulls titles from brain artifacts, and writes a clean index back to the database.
 

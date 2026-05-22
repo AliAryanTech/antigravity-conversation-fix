@@ -147,9 +147,11 @@ if _SYSTEM == "Windows":
         os.path.join(_appdata, "antigravity", "User", "globalStorage", "state.vscdb"),
     )
     CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_profile, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_profile, ".gemini", "antigravity", "conversations"),
     )
     BRAIN_DIR = _first_existing(
+        os.path.join(_profile, ".gemini", "antigravity-ide", "brain"),
         os.path.join(_profile, ".gemini", "antigravity", "brain"),
     )
     WORKSPACE_STORAGE_DIR = _first_existing(
@@ -176,9 +178,11 @@ elif _IS_WSL:
         WORKSPACE_STORAGE_DIR = ""
 
     CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_home, ".gemini", "antigravity", "conversations"),
     )
     BRAIN_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "brain"),
         os.path.join(_home, ".gemini", "antigravity", "brain"),
     )
 elif _SYSTEM == "Darwin":  # macOS
@@ -190,9 +194,11 @@ elif _SYSTEM == "Darwin":  # macOS
         os.path.join(_support, "antigravity", "User", "globalStorage", "state.vscdb"),
     )
     CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_home, ".gemini", "antigravity", "conversations"),
     )
     BRAIN_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "brain"),
         os.path.join(_home, ".gemini", "antigravity", "brain"),
     )
     WORKSPACE_STORAGE_DIR = _first_existing(
@@ -208,9 +214,11 @@ else:  # Linux and other POSIX systems
         os.path.join(_config, "Antigravity", "User", "globalStorage", "state.vscdb"),
     )
     CONVERSATIONS_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_home, ".gemini", "antigravity", "conversations"),
     )
     BRAIN_DIR = _first_existing(
+        os.path.join(_home, ".gemini", "antigravity-ide", "brain"),
         os.path.join(_home, ".gemini", "antigravity", "brain"),
     )
     WORKSPACE_STORAGE_DIR = _first_existing(

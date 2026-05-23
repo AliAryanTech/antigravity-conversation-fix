@@ -138,15 +138,22 @@ def _first_existing(*candidates):
     return candidates[0]
 
 
+def _existing_paths(*candidates):
+    """Return all candidate paths that exist on disk, preserving order."""
+    return [p for p in candidates if p and os.path.exists(p)]
+
+
 if _SYSTEM == "Windows":
     _appdata = os.path.expandvars(r"%APPDATA%")
     _profile = os.path.expandvars(r"%USERPROFILE%")
     _gemini = os.path.join(_profile, ".gemini")
 
-    DB_PATH = _first_existing(
+    _DB_CANDIDATES = (
         os.path.join(_appdata, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
         os.path.join(_appdata, "antigravity", "User", "globalStorage", "state.vscdb"),
+        os.path.join(_appdata, "Antigravity", "User", "globalStorage", "state.vscdb"),
     )
+    DB_PATH = _first_existing(*_DB_CANDIDATES)
     CONVERSATIONS_DIR = _first_existing(
         os.path.join(_gemini, "antigravity-ide", "conversations"),
         os.path.join(_gemini, "antigravity", "conversations"),
@@ -174,17 +181,19 @@ elif _IS_WSL:
     _home = os.path.expanduser("~")
 
     if _wsl_appdata:
-        DB_PATH = _first_existing(
+        _DB_CANDIDATES = (
             os.path.join(_wsl_appdata, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
             os.path.join(_wsl_appdata, "antigravity", "User", "globalStorage", "state.vscdb"),
             os.path.join(_wsl_appdata, "Antigravity", "User", "globalStorage", "state.vscdb"),
         )
+        DB_PATH = _first_existing(*_DB_CANDIDATES)
         WORKSPACE_STORAGE_DIR = _first_existing(
             os.path.join(_wsl_appdata, "Antigravity IDE", "User", "workspaceStorage"),
             os.path.join(_wsl_appdata, "antigravity", "User", "workspaceStorage"),
             os.path.join(_wsl_appdata, "Antigravity", "User", "workspaceStorage"),
         )
     else:
+        _DB_CANDIDATES = ()
         DB_PATH = ""
         WORKSPACE_STORAGE_DIR = ""
 
@@ -211,10 +220,11 @@ elif _SYSTEM == "Darwin":  # macOS
     _home = os.path.expanduser("~")
     _support = os.path.join(_home, "Library", "Application Support")
 
-    DB_PATH = _first_existing(
+    _DB_CANDIDATES = (
         os.path.join(_support, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
         os.path.join(_support, "antigravity", "User", "globalStorage", "state.vscdb"),
     )
+    DB_PATH = _first_existing(*_DB_CANDIDATES)
     CONVERSATIONS_DIR = _first_existing(
         os.path.join(_home, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_home, ".gemini", "antigravity", "conversations"),
@@ -242,10 +252,11 @@ else:  # Linux and other POSIX systems
     _home = os.path.expanduser("~")
     _config = os.path.join(_home, ".config")
 
-    DB_PATH = _first_existing(
+    _DB_CANDIDATES = (
         os.path.join(_config, "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
         os.path.join(_config, "Antigravity", "User", "globalStorage", "state.vscdb"),
     )
+    DB_PATH = _first_existing(*_DB_CANDIDATES)
     CONVERSATIONS_DIR = _first_existing(
         os.path.join(_home, ".gemini", "antigravity-ide", "conversations"),
         os.path.join(_home, ".gemini", "antigravity", "conversations"),
@@ -270,6 +281,7 @@ else:  # Linux and other POSIX systems
         os.path.join(_gemini_linux, "antigravity-backup", "brain"),
     ]
 
+DB_PATHS = _existing_paths(*_DB_CANDIDATES)
 BACKUP_FILENAME = "trajectorySummaries_backup.txt"
 
 
@@ -284,9 +296,10 @@ def _find_brain_path(conversation_id):
 
 def _collect_all_conversations():
     """
-    Merge conversation .pb files from all folders (new, old, backup).
+    Merge conversation files from all folders (new, old, backup).
+    Supports both .pb (protobuf, legacy) and .db (SQLite, v2.x+) formats.
     Deduplicates by conversation ID — first seen wins (priority: new > old > backup).
-    Returns dict: {conversation_id: full_pb_path}
+    Returns dict: {conversation_id: full_file_path}
     """
     catalog = {}
     for conv_dir in _ALL_CONV_DIRS:
@@ -294,9 +307,14 @@ def _collect_all_conversations():
             continue
         try:
             for name in os.listdir(conv_dir):
-                if not name.endswith(".pb"):
+                # Accept .pb (legacy protobuf) and .db (new SQLite) files
+                # Skip SQLite journal files (.db-shm, .db-wal)
+                if name.endswith(".pb"):
+                    cid = name[:-3]
+                elif name.endswith(".db") and not name.endswith((".db-shm", ".db-wal")):
+                    cid = name[:-3]
+                else:
                     continue
-                cid = name[:-3]
                 if cid not in catalog:
                     catalog[cid] = os.path.join(conv_dir, name)
         except Exception:
@@ -839,6 +857,60 @@ def extract_existing_metadata(db_path):
     return titles, inner_blobs
 
 
+def extract_existing_metadata_from_paths(db_paths):
+    """
+    Read metadata from ALL existing Antigravity databases.
+    First DB wins for each conversation ID, so metadata is not overwritten
+    by a later DB that might have stale data.
+    """
+    merged_titles = {}
+    merged_inner_blobs = {}
+    for db_path in db_paths:
+        titles, inner_blobs = extract_existing_metadata(db_path)
+        for cid, title in titles.items():
+            if cid not in merged_titles:
+                merged_titles[cid] = title
+        for cid, blob in inner_blobs.items():
+            if cid not in merged_inner_blobs:
+                merged_inner_blobs[cid] = blob
+    return merged_titles, merged_inner_blobs
+
+
+def write_index_to_database(db_path, encoded_value, backup_suffix):
+    """Back up and write the rebuilt trajectory index into one state.vscdb."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT value FROM ItemTable "
+        "WHERE key='antigravityUnifiedStateSync.trajectorySummaries'"
+    )
+    row = cur.fetchone()
+
+    backup_name = f"trajectorySummaries_backup_{backup_suffix}.txt" if backup_suffix else BACKUP_FILENAME
+    backup_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), backup_name)
+    if row and row[0]:
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            f.write(row[0])
+
+    if row:
+        cur.execute(
+            "UPDATE ItemTable SET value=? "
+            "WHERE key='antigravityUnifiedStateSync.trajectorySummaries'",
+            (encoded_value,)
+        )
+    else:
+        cur.execute(
+            "INSERT INTO ItemTable (key, value) "
+            "VALUES ('antigravityUnifiedStateSync.trajectorySummaries', ?)",
+            (encoded_value,)
+        )
+
+    conn.commit()
+    conn.close()
+    return backup_name if row and row[0] else None
+
+
 def get_title_from_brain(conversation_id):
     """
     Try to extract a title from brain artifact .md files.
@@ -954,31 +1026,38 @@ def main():
     print("   Rebuilds your conversation index — sorted by date")
     print("=" * 62)
     print()
+    print("  IMPORTANT: Close Antigravity completely before continuing.")
+    print("  If it is open, this fix may be overwritten when the app exits.")
+    print()
 
     # ── Check if Antigravity is running ────────────────────────────────────
 
     _ag_running = False
     if _SYSTEM == "Windows":
-        try:
-            result = subprocess.run(
-                ['tasklist', '/FI', 'IMAGENAME eq antigravity.exe'],
-                capture_output=True, text=True, creationflags=0x08000000
-            )
-            if 'antigravity.exe' in result.stdout.lower():
-                _ag_running = True
-        except Exception:
-            pass
+        for exe_name in ("antigravity.exe", "antigravity ide.exe"):
+            try:
+                result = subprocess.run(
+                    ['tasklist', '/FI', f'IMAGENAME eq {exe_name}'],
+                    capture_output=True, text=True, creationflags=0x08000000
+                )
+                if exe_name in result.stdout.lower():
+                    _ag_running = True
+                    break
+            except Exception:
+                pass
     elif _IS_WSL:
         # Check the Windows host process first, then Linux processes
-        try:
-            result = subprocess.run(
-                ['tasklist.exe', '/FI', 'IMAGENAME eq antigravity.exe'],
-                capture_output=True, text=True
-            )
-            if 'antigravity.exe' in result.stdout.lower():
-                _ag_running = True
-        except Exception:
-            pass
+        for exe_name in ("antigravity.exe", "antigravity ide.exe"):
+            try:
+                result = subprocess.run(
+                    ['tasklist.exe', '/FI', f'IMAGENAME eq {exe_name}'],
+                    capture_output=True, text=True
+                )
+                if exe_name in result.stdout.lower():
+                    _ag_running = True
+                    break
+            except Exception:
+                pass
         if not _ag_running:
             try:
                 result = subprocess.run(
@@ -1014,9 +1093,10 @@ def main():
 
     # ── Validate paths ──────────────────────────────────────────────────────
 
-    if not os.path.exists(DB_PATH):
-        print(f"  ERROR: Database not found at:")
-        print(f"    {DB_PATH}")
+    if not DB_PATHS:
+        print(f"  ERROR: Database not found at any known Antigravity location:")
+        for candidate in _DB_CANDIDATES:
+            print(f"    {candidate}")
         print()
         print("  Make sure Antigravity has been installed and opened at least once.")
         input("\n  Press Enter to close...")
@@ -1051,8 +1131,11 @@ def main():
 
     # ── Preserve existing metadata ──────────────────────────────────────────
 
-    print("  Reading existing metadata from database...")
-    existing_titles, existing_inner_blobs = extract_existing_metadata(DB_PATH)
+    print("  Reading existing metadata from database(s)...")
+    for db_path in DB_PATHS:
+        app_name = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(db_path))))
+        print(f"    {app_name}: {db_path}")
+    existing_titles, existing_inner_blobs = extract_existing_metadata_from_paths(DB_PATHS)
     ws_count = sum(1 for v in existing_inner_blobs.values()
                    if extract_workspace_hint(v))
     print(f"  Found {len(existing_titles)} existing titles to preserve")
@@ -1159,42 +1242,18 @@ def main():
     print(f"  Workspace: {ws_total} mapped  |  Timestamps injected: {ts_injected}")
     print()
 
-    # ── Backup current data ─────────────────────────────────────────────────
-
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT value FROM ItemTable "
-        "WHERE key='antigravityUnifiedStateSync.trajectorySummaries'"
-    )
-    row = cur.fetchone()
-
-    backup_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), BACKUP_FILENAME)
-    if row and row[0]:
-        with open(backup_path, 'w', encoding='utf-8') as f:
-            f.write(row[0])
-        print(f"  Backup saved to: {BACKUP_FILENAME}")
-
-    # ── Write the new index ─────────────────────────────────────────────────
+    # ── Write the rebuilt index to ALL databases ────────────────────────────
 
     encoded = base64.b64encode(result_bytes).decode('utf-8')
 
-    if row:
-        cur.execute(
-            "UPDATE ItemTable SET value=? "
-            "WHERE key='antigravityUnifiedStateSync.trajectorySummaries'",
-            (encoded,)
-        )
-    else:
-        cur.execute(
-            "INSERT INTO ItemTable (key, value) "
-            "VALUES ('antigravityUnifiedStateSync.trajectorySummaries', ?)",
-            (encoded,)
-        )
-
-    conn.commit()
-    conn.close()
+    print("  Writing rebuilt index to database(s):")
+    for db_path in DB_PATHS:
+        app_name = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(db_path))))
+        suffix = re.sub(r"[^A-Za-z0-9]+", "_", app_name).strip("_").lower()
+        backup_name = write_index_to_database(db_path, encoded, suffix)
+        print(f"    {app_name}: updated")
+        if backup_name:
+            print(f"      backup: {backup_name}")
 
     # ── Done ────────────────────────────────────────────────────────────────
 

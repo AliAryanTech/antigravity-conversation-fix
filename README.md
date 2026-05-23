@@ -30,6 +30,8 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 | "Antigravity IDE" renamed folder not detected | ✅ Auto-detects both old and new paths *(v1.05+)* |
 | Antigravity IDE 2.x `antigravity-ide` data folder | ✅ Auto-detects all naming variants *(v1.05+)* |
 | Conversations split across multiple folders after upgrade | ✅ Multi-folder merge with dedup *(v1.06+)* |
+| Only one Antigravity variant fixed when both installed | ✅ Writes index to ALL databases *(v1.06+)* |
+| New `.db` conversation format not detected | ✅ Supports both `.pb` and `.db` files *(v1.06+)* |
 | Running from WSL requires manual file copying | ✅ Native WSL path detection *(v1.05+)* |
 | `python` command fails on macOS/Linux | ✅ Auto-detects Python 3, with built-in fallback *(v1.05+)* |
 
@@ -37,8 +39,8 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 
 Antigravity stores conversation data in two places:
 
-- **Conversation files** (`*.pb`) — stored in your user profile
-- **Sidebar index** — a SQLite database in your app data folder
+- **Conversation files** (`*.pb` or `*.db`) — stored in your user profile
+- **Sidebar index** — a SQLite database in your app data folder (one per Antigravity variant)
 
 | OS | Conversations | Database |
 |---|---|---|
@@ -69,7 +71,10 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 
 ### v1.06
 - **New:** **Multi-folder conversation merge** — scans `antigravity-ide`, `antigravity`, and `antigravity-backup` folders, merges all conversations with deduplication (newest folder wins). Users who upgraded from v1.x to v2.x no longer lose conversations that were only in the old or backup folder.
+- **New:** **Multi-database write** — discovers ALL existing Antigravity databases (`Antigravity`, `Antigravity IDE`, `antigravity`) and writes the rebuilt index to every one of them. If you have both the standalone agent and the IDE installed, both get fixed in one run.
+- **New:** **`.db` conversation format** — newer Antigravity IDE versions store conversations as `.db` (SQLite) files instead of `.pb` (protobuf). The tool now detects both formats. `.db-shm` and `.db-wal` journal files are automatically ignored.
 - **New:** **Cross-folder brain search** — brain artifacts are now searched across all 3 folders, so title resolution and workspace inference work even when brain data is in a different folder than the conversation file.
+- **Fix:** Process detection now checks for both `antigravity.exe` and `antigravity ide.exe`.
 - **Non-destructive** — conversations are read in-place from all folders. No files are copied or moved.
 
 ### v1.05
